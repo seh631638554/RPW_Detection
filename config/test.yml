@@ -1,0 +1,43 @@
+server:
+  port: "8080"
+  mode: "debug"          # 或 release
+  readTimeout: 30s
+  writeTimeout: 30s
+  idleTimeout: 60s
+
+database:
+  host: "localhost"      # 如果 Go 服务和 docker-compose 在同一台主机，可用 localhost
+  port: 3306
+  username: "pest_user"  # 来自 docker-compose
+  password: "password"
+  database: "pest_detection"
+  maxOpenConns: 100
+  maxIdleConns: 10
+  connLifetime: 1h
+
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""           # docker-compose 默认未设置密码
+  database: 0
+  poolSize: 20
+  minIdleConns: 5
+
+jwt:
+  secretKey: "your-secret-key-here"
+  expireTime: 24h
+
+kafka:
+  brokers:
+    - "localhost:9092"   # redpanda 暴露的端口
+  topic: "audio_detection"
+  groupID: "detection_group"
+
+minio:
+  endpoint: "localhost:9000"
+  accessKey: "minioadmin"
+  secretKey: "minioadmin"
+  bucket: "rpw-audio"
+
+storage:
+  # 根据 storage.go 的需要扩展
