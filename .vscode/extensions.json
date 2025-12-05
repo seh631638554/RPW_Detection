@@ -1,0 +1,10 @@
+{
+    "recommendations": [
+        "golang.go",
+        "ms-vscode.go",
+        "ms-vscode.vscode-json",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode"
+    ]
+}
+
