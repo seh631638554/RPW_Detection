@@ -17,7 +17,7 @@ func NewGinEngine(config *Config) *gin.Engine {
 	engine := gin.New()
 
 	// 使用中间件
-	engine.Use(RequestLoggerMiddleware()) // 自定义日志中间件
+	// engine.Use(RequestLoggerMiddleware()) // 自定义日志中间件
 	engine.Use(ErrorHandlerMiddleware())  // 错误处理中间件
 	engine.Use(RequestIDMiddleware())     // 请求ID中间件
 	engine.Use(PerformanceMiddleware())   // 性能监控中间件

@@ -1,12 +1,18 @@
 package httpserver
 
 import (
+	dao "RPW_Detection/Dao"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+type AuthHandler struct {
+	repo *dao.Repo
+	cfg  *Config
+}
 
 // 响应结构体
 type Response struct {
@@ -63,20 +69,24 @@ func errorResponse(c *gin.Context, code int, message string) {
 }
 
 // ==================== 认证相关处理函数 ====================
+func NewAuthHandler(repo *dao.Repo, cfg *Config) *AuthHandler {
+	return &AuthHandler{repo: repo, cfg: cfg}
+}
 
 // 用户登录
-func handleLogin(c *gin.Context) {
+func (h *AuthHandler) handleLogin(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errorResponse(c, http.StatusBadRequest, "请求参数错误: "+err.Error())
 		return
 	}
 
+	user, err := repo.FindUserByUsername(req.Username)
+
 	// TODO: 实现实际的登录逻辑
 	// 1. 验证用户名密码
 	// 2. 生成JWT token
 	// 3. 返回token
-
 	// 模拟登录成功
 	token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." // 这里应该是真实的JWT token
 

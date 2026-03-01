@@ -6,7 +6,7 @@ server:
   idleTimeout: 60s
 
 database:
-  host: "localhost"      # 如果 Go 服务和 docker-compose 在同一台主机，可用 localhost
+  host: "127.0.0.1"      # 如果 Go 服务和 docker-compose 在同一台主机，可用 localhost
   port: 3306
   username: "pest_user"  # 来自 docker-compose
   password: "password"
