@@ -8,7 +8,7 @@ server:
 database:
   host: "127.0.0.1"      # 如果 Go 服务和 docker-compose 在同一台主机，可用 localhost
   port: 3306
-  username: "pest_user"  # 来自 docker-compose
+  username: "root"  # 来自 docker-compose
   password: "password"
   database: "pest_detection"
   maxOpenConns: 100
@@ -27,17 +27,17 @@ jwt:
   secretKey: "your-secret-key-here"
   expireTime: 24h
 
-kafka:
-  brokers:
-    - "localhost:9092"   # redpanda 暴露的端口
-  topic: "audio_detection"
-  groupID: "detection_group"
+# kafka:
+#   brokers:
+#     - "localhost:9092"   # redpanda 暴露的端口
+#   topic: "audio_detection"
+#   groupID: "detection_group"
 
-minio:
-  endpoint: "localhost:9000"
-  accessKey: "minioadmin"
-  secretKey: "minioadmin"
-  bucket: "rpw-audio"
+# minio:
+#   endpoint: "localhost:9000"
+#   accessKey: "minioadmin"
+#   secretKey: "minioadmin"
+#   bucket: "rpw-audio"
 
-storage:
+# storage:
   # 根据 storage.go 的需要扩展

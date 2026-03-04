@@ -2,11 +2,14 @@ package httpserver
 
 import (
 	dao "RPW_Detection/Dao"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type AuthHandler struct {
@@ -81,26 +84,45 @@ func (h *AuthHandler) handleLogin(c *gin.Context) {
 		return
 	}
 
-	user, err := repo.FindUserByUsername(req.Username)
-
-	// TODO: 实现实际的登录逻辑
-	// 1. 验证用户名密码
-	// 2. 生成JWT token
-	// 3. 返回token
-	// 模拟登录成功
-	token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." // 这里应该是真实的JWT token
+	user, err := h.repo.FindUserByUsername(req.Username)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			errorResponse(c, http.StatusUnauthorized, "用户名或密码错误")
+			return
+		}
+		errorResponse(c, http.StatusInternalServerError, "查询用户失败")
+		return
+	}
+	if user.Status != 1 {
+		errorResponse(c, http.StatusForbidden, "用户已被禁用")
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
+		errorResponse(c, http.StatusUnauthorized, "用户名或密码错误")
+		return
+	}
+	jwtConfig := NewJWTConfig()
+	if h.cfg != nil {
+		jwtConfig = &h.cfg.JWT
+	}
+	token, err := GenerateJWT(strconv.FormatUint(uint64(user.ID), 10), user.Username, jwtConfig)
+	if err != nil {
+		errorResponse(c, http.StatusInternalServerError, "生成token失败")
+		return
+	}
 
 	successResponse(c, gin.H{
 		"token": token,
 		"user": gin.H{
-			"username":   req.Username,
+			"id":         user.ID,
+			"username":   user.Username,
 			"login_time": time.Now().Format("2006-01-02 15:04:05"),
 		},
 	})
 }
 
 // 用户注册
-func handleRegister(c *gin.Context) {
+func (h *AuthHandler) handleRegister(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errorResponse(c, http.StatusBadRequest, "请求参数错误: "+err.Error())
@@ -123,7 +145,7 @@ func handleRegister(c *gin.Context) {
 }
 
 // Token验证
-func handleTokenVerify(c *gin.Context) {
+func (h *AuthHandler) handleTokenVerify(c *gin.Context) {
 	token := c.GetHeader("Authorization")
 	if token == "" {
 		errorResponse(c, http.StatusUnauthorized, "缺少认证token")
@@ -144,7 +166,7 @@ func handleTokenVerify(c *gin.Context) {
 // ==================== 音频检测相关处理函数 ====================
 
 // 音频上传
-func handleAudioUpload(c *gin.Context) {
+func (h *AuthHandler) handleAudioUpload(c *gin.Context) {
 	var req AudioUploadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errorResponse(c, http.StatusBadRequest, "请求参数错误: "+err.Error())
