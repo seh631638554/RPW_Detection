@@ -11,6 +11,16 @@ import (
 
 // 全局存储服务实例
 var storageService StorageService
+var uploadHandler *UploadHandler
+
+// UploadHandler handles upload APIs.
+type UploadHandler struct {
+	service *UploadService
+}
+
+func NewUploadHandler(service *UploadService) *UploadHandler {
+	return &UploadHandler{service: service}
+}
 
 // InitStorageService 初始化存储服务
 func InitStorageService() error {
@@ -21,6 +31,7 @@ func InitStorageService() error {
 	if err != nil {
 		return err
 	}
+	uploadHandler = NewUploadHandler(NewUploadService(storageService, config))
 
 	return nil
 }
@@ -28,6 +39,10 @@ func InitStorageService() error {
 // CreateUploadJob 创建上传任务
 // POST /api/v1/jobs
 func CreateUploadJob(c *gin.Context) {
+	(&UploadHandler{}).HandleCreateUploadJob(c)
+}
+
+func (h *UploadHandler) HandleCreateUploadJob(c *gin.Context) {
 	var req CreateUploadJobRequest
 
 	// 绑定请求参数
@@ -47,50 +62,19 @@ func CreateUploadJob(c *gin.Context) {
 		errorResponse(c, http.StatusBadRequest, "文件大小超出限制")
 		return
 	}
-
-	// 生成任务ID
-	jobID := GenerateJobID()
-
-	// 生成存储键
-	storageKey := GenerateStorageKey(req.DeviceID, req.FileName)
-
-	// 设置元数据
-	metadata := map[string]string{
-		"device_id":   req.DeviceID,
-		"job_id":      jobID,
-		"file_type":   req.FileType,
-		"description": req.Description,
-		"upload_time": time.Now().Format(time.RFC3339),
+	if h == nil || h.service == nil {
+		if uploadHandler == nil || uploadHandler.service == nil {
+			if err := InitStorageService(); err != nil {
+				errorResponse(c, http.StatusServiceUnavailable, "存储服务不可用: "+err.Error())
+				return
+			}
+		}
+		h = uploadHandler
 	}
-
-	// 生成预签名上传URL
-	uploadURL, err := storageService.GeneratePresignedUploadURL(PresignedURLParams{
-		Bucket:      "pest-detection", // 使用默认存储桶
-		Key:         storageKey,
-		Method:      "PUT",
-		Expires:     time.Duration(24) * time.Hour, // 24小时过期
-		ContentType: req.ContentType,
-		Metadata:    metadata,
-	})
-
+	response, err := h.service.CreateUploadJob(req)
 	if err != nil {
 		errorResponse(c, http.StatusInternalServerError, "生成预签名URL失败: "+err.Error())
 		return
-	}
-
-	// 创建响应
-	response := CreateUploadJobResponse{
-		JobID:          jobID,
-		UploadURL:      uploadURL,
-		Bucket:         "pest-detection",
-		Key:            storageKey,
-		TTL:            24 * 3600, // 24小时，单位秒
-		ExpiresAt:      time.Now().Add(24 * time.Hour),
-		ContentType:    req.ContentType,
-		MaxFileSize:    req.FileSize,
-		RequiredFields: []string{"file"}, // 前端需要上传的字段
-		Status:         string(JobStatusPending),
-		CreatedAt:      time.Now(),
 	}
 
 	// 保存任务信息到数据库 (TODO: 实现数据库存储)

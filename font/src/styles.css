@@ -1,0 +1,94 @@
+:root {
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f3f6fa;
+  color: #1e2430;
+}
+
+.page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.card {
+  width: 100%;
+  max-width: 560px;
+  background: #ffffff;
+  border: 1px solid #dce4ef;
+  border-radius: 16px;
+  padding: 20px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+}
+
+.sub {
+  margin: 0 0 16px;
+  color: #5b6472;
+}
+
+.label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+
+.tabs button,
+.form button {
+  border: 1px solid #c4cfdf;
+  background: #eef3fb;
+  color: #1c2533;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.tabs button.active {
+  background: #2a67e8;
+  border-color: #2a67e8;
+  color: #fff;
+}
+
+.form {
+  display: grid;
+  gap: 10px;
+}
+
+input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #c9d4e4;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.token-line {
+  font-size: 12px;
+  color: #4c5668;
+  overflow-wrap: anywhere;
+}
+
+.msg {
+  margin-top: 12px;
+  padding: 10px;
+  background: #eef7ee;
+  border: 1px solid #cfe6cf;
+  border-radius: 10px;
+}
