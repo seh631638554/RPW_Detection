@@ -39,7 +39,6 @@ func (r *Router) Register(engine *gin.Engine) {
 
 	detection := api.Group("/detection")
 	{
-		detection.POST("/upload", r.auth.handleAudioUpload)
 		detection.GET("/result/:id", handleGetResult)
 		detection.GET("/status/:id", handleGetStatus)
 	}

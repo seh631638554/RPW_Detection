@@ -28,7 +28,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("init minio fetcher failed: %v", err)
 	}
-	processor := preprocess.NewBasicProcessor(fetcher, cfg.ProcessorName)
+	extractor := preprocess.NewPythonFeatureExtractor(cfg)
+	processor := preprocess.NewBasicProcessor(fetcher, extractor, cfg.ProcessorName)
 
 	if *once {
 		if *jobID == "" || *bucket == "" || *key == "" {
@@ -49,7 +50,17 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	service := preprocess.NewService(preprocess.NoopConsumer{}, processor, preprocess.LogPublisher{})
+	consumer, err := preprocess.NewKafkaConsumer(cfg)
+	if err != nil {
+		log.Fatalf("init kafka consumer failed: %v", err)
+	}
+
+	publisher, err := preprocess.NewMinIOKafkaPublisher(cfg)
+	if err != nil {
+		log.Fatalf("init result publisher failed: %v", err)
+	}
+
+	service := preprocess.NewService(consumer, processor, publisher)
 	if err := service.Run(ctx); err != nil && err != context.Canceled {
 		log.Fatalf("preprocess service stopped with error: %v", err)
 	}

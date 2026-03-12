@@ -3,6 +3,7 @@ package httpserver
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -67,7 +68,7 @@ func LoadConfig() *Config {
 			Host:         getEnv("DB_HOST", "localhost"),
 			Port:         getIntEnv("DB_PORT", 3306),
 			Username:     getEnv("DB_USERNAME", "root"),
-			Password:     getEnv("DB_PASSWORD", ""),
+			Password:     getEnv("DB_PASSWORD", "password"),
 			Database:     getEnv("DB_DATABASE", "pest_detection"),
 			MaxOpenConns: getIntEnv("DB_MAX_OPEN_CONNS", 100),
 			MaxIdleConns: getIntEnv("DB_MAX_IDLE_CONNS", 10),
@@ -87,7 +88,7 @@ func LoadConfig() *Config {
 		},
 		Kafka: KafkaConfig{
 			Brokers: getStringSliceEnv("KAFKA_BROKERS", []string{"localhost:9092"}),
-			Topic:   getEnv("KAFKA_TOPIC", "audio_detection"),
+			Topic:   getEnv("KAFKA_TOPIC", "audio.preprocess"),
 			GroupID: getEnv("KAFKA_GROUP_ID", "detection_group"),
 		},
 	}
@@ -126,9 +127,17 @@ func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
 // 获取字符串切片环境变量
 func getStringSliceEnv(key string, defaultValue []string) []string {
 	if value := os.Getenv(key); value != "" {
-		// 简单的逗号分隔实现
-		// 在生产环境中可能需要更复杂的解析逻辑
-		return []string{value}
+		parts := strings.Split(value, ",")
+		result := make([]string, 0, len(parts))
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				result = append(result, part)
+			}
+		}
+		if len(result) > 0 {
+			return result
+		}
 	}
 	return defaultValue
 }

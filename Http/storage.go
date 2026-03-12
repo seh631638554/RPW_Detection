@@ -95,7 +95,6 @@ func (s *MinIOStorageService) GeneratePresignedUploadURL(params PresignedURLPara
 		Bucket:      aws.String(params.Bucket),
 		Key:         aws.String(params.Key),
 		ContentType: aws.String(params.ContentType),
-		Metadata:    aws.StringMap(params.Metadata),
 	})
 
 	// 生成预签名URL

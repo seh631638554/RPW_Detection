@@ -36,6 +36,18 @@ func InitStorageService() error {
 	return nil
 }
 
+func ensureUploadInfrastructure() error {
+	if storageService == nil {
+		if err := InitStorageService(); err != nil {
+			return err
+		}
+	}
+	if err := ensureUploadEventPublisher(); err != nil {
+		return err
+	}
+	return nil
+}
+
 // CreateUploadJob 创建上传任务
 // POST /api/v1/jobs
 func CreateUploadJob(c *gin.Context) {
@@ -197,17 +209,72 @@ func UploadCompletionWebhook(c *gin.Context) {
 		errorResponse(c, http.StatusBadRequest, "回调参数错误: "+err.Error())
 		return
 	}
+	if notification.JobID != "" && notification.JobID != jobID {
+		errorResponse(c, http.StatusBadRequest, "任务ID不匹配")
+		return
+	}
+	if notification.Bucket == "" || notification.Key == "" {
+		errorResponse(c, http.StatusBadRequest, "bucket和key不能为空")
+		return
+	}
+	if err := ensureUploadInfrastructure(); err != nil {
+		errorResponse(c, http.StatusServiceUnavailable, "上传基础设施不可用: "+err.Error())
+		return
+	}
+
+	exists, err := storageService.FileExists(notification.Bucket, notification.Key)
+	if err != nil {
+		errorResponse(c, http.StatusInternalServerError, "校验上传文件失败: "+err.Error())
+		return
+	}
+	if !exists {
+		errorResponse(c, http.StatusNotFound, "上传文件不存在")
+		return
+	}
+
+	fileInfo, err := storageService.GetFileInfo(notification.Bucket, notification.Key)
+	if err != nil {
+		errorResponse(c, http.StatusInternalServerError, "读取上传文件信息失败: "+err.Error())
+		return
+	}
+
+	completedAt := notification.CompletedAt
+	if completedAt.IsZero() {
+		completedAt = time.Now()
+	}
+	size := notification.Size
+	if size <= 0 {
+		size = fileInfo.Size
+	}
+	contentType := fileInfo.ContentType
+	if contentType == "" {
+		contentType = GetContentType(notification.Key)
+	}
+
+	event := AudioUploadCompletedEvent{
+		JobID:       jobID,
+		DeviceID:    extractDeviceIDFromObjectKey(notification.Key),
+		Bucket:      notification.Bucket,
+		Key:         notification.Key,
+		Size:        size,
+		ContentType: contentType,
+		UploadedAt:  completedAt,
+	}
+
+	if err := uploadEventPublisher.PublishAudioUploadCompleted(c.Request.Context(), event); err != nil {
+		errorResponse(c, http.StatusInternalServerError, "发送上传完成事件失败: "+err.Error())
+		return
+	}
 
 	// TODO: 更新任务状态为已完成
 	// updateUploadJobStatus(jobID, JobStatusCompleted)
 
-	// TODO: 触发后续处理流程 (音频检测等)
-	// triggerAudioDetection(jobID, notification.Bucket, notification.Key)
-
 	successResponse(c, gin.H{
-		"message": "上传完成回调处理成功",
-		"job_id":  jobID,
-		"status":  "completed",
+		"message":         "上传完成回调处理成功",
+		"job_id":          jobID,
+		"status":          "completed",
+		"event_published": true,
+		"device_id":       event.DeviceID,
 	})
 }
 

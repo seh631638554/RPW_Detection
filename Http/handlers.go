@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	dao "RPW_Detection/Dao"
+	models "RPW_Detection/Models"
 	"errors"
 	"net/http"
 	"strconv"
@@ -128,15 +129,41 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 		errorResponse(c, http.StatusBadRequest, "请求参数错误: "+err.Error())
 		return
 	}
+	if h == nil || h.repo == nil {
+		errorResponse(c, http.StatusInternalServerError, "注册服务未初始化")
+		return
+	}
 
-	// TODO: 实现实际的注册逻辑
-	// 1. 检查用户名是否已存在
-	// 2. 密码加密存储
-	// 3. 创建用户记录
+	_, err := h.repo.FindUserByUsername(req.Username)
+	if err == nil {
+		errorResponse(c, http.StatusConflict, "用户名已存在")
+		return
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		errorResponse(c, http.StatusInternalServerError, "查询用户失败")
+		return
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		errorResponse(c, http.StatusInternalServerError, "密码加密失败")
+		return
+	}
+
+	user := &models.User{
+		Username:     req.Username,
+		PasswordHash: string(passwordHash),
+		Status:       1,
+	}
+	if err := h.repo.Create(user); err != nil {
+		errorResponse(c, http.StatusInternalServerError, "创建用户失败")
+		return
+	}
 
 	successResponse(c, gin.H{
 		"message": "用户注册成功",
 		"user": gin.H{
+			"id":            user.ID,
 			"username":      req.Username,
 			"email":         req.Email,
 			"register_time": time.Now().Format("2006-01-02 15:04:05"),
@@ -164,36 +191,6 @@ func (h *AuthHandler) handleTokenVerify(c *gin.Context) {
 }
 
 // ==================== 音频检测相关处理函数 ====================
-
-// 音频上传
-func (h *AuthHandler) handleAudioUpload(c *gin.Context) {
-	var req AudioUploadRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		errorResponse(c, http.StatusBadRequest, "请求参数错误: "+err.Error())
-		return
-	}
-
-	// 获取上传的音频文件
-	_, err := c.FormFile("audio_file")
-	if err != nil {
-		errorResponse(c, http.StatusBadRequest, "音频文件上传失败: "+err.Error())
-		return
-	}
-
-	// TODO: 实现实际的音频处理逻辑
-	// 1. 保存音频文件
-	// 2. 创建检测任务
-	// 3. 返回任务ID
-
-	taskID := "task_" + strconv.FormatInt(time.Now().UnixNano(), 10)
-
-	successResponse(c, gin.H{
-		"message":     "音频上传成功",
-		"task_id":     taskID,
-		"device_id":   req.DeviceID,
-		"upload_time": time.Now().Format("2006-01-02 15:04:05"),
-	})
-}
 
 // 获取检测结果
 func handleGetResult(c *gin.Context) {
