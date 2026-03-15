@@ -1,6 +1,32 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 const DEFAULT_API_BASE = "http://localhost:8080/api/v1";
+const TOKEN_STORAGE_KEY = "rpw_token";
+const USER_STORAGE_KEY = "rpw_user";
+const PAGE_STORAGE_KEY = "rpw_page";
+
+function readStoredToken() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+}
+
+function readStoredUser() {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(USER_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (_err) {
+    window.localStorage.removeItem(USER_STORAGE_KEY);
+    return null;
+  }
+}
+
+function readStoredPage() {
+  if (typeof window === "undefined") return "upload";
+  const page = window.localStorage.getItem(PAGE_STORAGE_KEY) || "upload";
+  return ["upload", "history", "parks", "trees", "devices"].includes(page) ? page : "upload";
+}
 
 function parseDate(value) {
   if (!value) return null;
@@ -14,9 +40,9 @@ function parseDate(value) {
 function App() {
   const [apiBase] = useState(DEFAULT_API_BASE);
   const [mode, setMode] = useState("login");
-  const [page, setPage] = useState("upload");
-  const [token, setToken] = useState("");
-  const [user, setUser] = useState(null);
+  const [page, setPage] = useState(readStoredPage);
+  const [token, setToken] = useState(readStoredToken);
+  const [user, setUser] = useState(readStoredUser);
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -109,6 +135,33 @@ function App() {
     }, messageTTL);
     return () => window.clearTimeout(timer);
   }, [message, messageTTL]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (token) {
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (user) {
+      window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+    } else {
+      window.localStorage.removeItem(USER_STORAGE_KEY);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (page) {
+      window.localStorage.setItem(PAGE_STORAGE_KEY, page);
+    } else {
+      window.localStorage.removeItem(PAGE_STORAGE_KEY);
+    }
+  }, [page]);
 
   useEffect(() => {
     if (!isAuthed) {
