@@ -67,19 +67,38 @@ func main() {
 		log.Fatalf("上传服务初始化失败: %v", err)
 	}
 
-	if err := container.Provide(func(svc *httpserver.UploadService) *httpserver.UploadHandler {
-		return httpserver.NewUploadHandler(svc)
+	if err := container.Provide(func(svc *httpserver.UploadService, repo *dao.Repo, cfg *httpserver.Config) *httpserver.UploadHandler {
+		return httpserver.NewUploadHandler(svc, repo, cfg)
 	}); err != nil {
 		log.Fatalf("上传处理器初始化失败: %v", err)
 	}
 
-	if err := container.Provide(func(auth *httpserver.AuthHandler, upload *httpserver.UploadHandler) *httpserver.Router {
-		return httpserver.NewRouter(auth, upload)
+	if err := container.Provide(func(repo *dao.Repo) *httpserver.ParkHandler {
+		return httpserver.NewParkHandler(repo)
+	}); err != nil {
+		log.Fatalf("ParkHandler初始化失败: %v", err)
+	}
+
+	if err := container.Provide(func(repo *dao.Repo) *httpserver.TreeHandler {
+		return httpserver.NewTreeHandler(repo)
+	}); err != nil {
+		log.Fatalf("TreeHandler初始化失败: %v", err)
+	}
+
+	if err := container.Provide(func(repo *dao.Repo) *httpserver.DeviceHandler {
+		return httpserver.NewDeviceHandler(repo)
+	}); err != nil {
+		log.Fatalf("DeviceHandler初始化失败: %v", err)
+	}
+
+	if err := container.Provide(func(auth *httpserver.AuthHandler, upload *httpserver.UploadHandler, park *httpserver.ParkHandler, tree *httpserver.TreeHandler, device *httpserver.DeviceHandler) *httpserver.Router {
+		return httpserver.NewRouter(auth, upload, park, tree, device)
 	}); err != nil {
 		log.Fatalf("Router初始化失败: %v", err)
 	}
 
-	if err := container.Invoke(func(cfg *httpserver.Config, engine *gin.Engine, router *httpserver.Router) {
+	if err := container.Invoke(func(cfg *httpserver.Config, engine *gin.Engine, router *httpserver.Router, repo *dao.Repo) {
+		httpserver.StartClassificationResultConsumer(cfg, repo)
 		router.Register(engine)
 		_ = httpserver.StartServer(cfg, engine)
 	}); err != nil {

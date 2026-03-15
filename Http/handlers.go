@@ -117,6 +117,8 @@ func (h *AuthHandler) handleLogin(c *gin.Context) {
 		"user": gin.H{
 			"id":         user.ID,
 			"username":   user.Username,
+			"is_admin":   user.IsAdmin,
+			"status":     user.Status,
 			"login_time": time.Now().Format("2006-01-02 15:04:05"),
 		},
 	})

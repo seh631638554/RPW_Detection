@@ -10,17 +10,27 @@ import (
 type Router struct {
 	auth   *AuthHandler
 	upload *UploadHandler
+	park   *ParkHandler
+	tree   *TreeHandler
+	device *DeviceHandler
 }
 
-func NewRouter(auth *AuthHandler, upload *UploadHandler) *Router {
+func NewRouter(auth *AuthHandler, upload *UploadHandler, park *ParkHandler, tree *TreeHandler, device *DeviceHandler) *Router {
 	return &Router{
 		auth:   auth,
 		upload: upload,
+		park:   park,
+		tree:   tree,
+		device: device,
 	}
 }
 
 func (r *Router) Register(engine *gin.Engine) {
 	api := engine.Group("/api/v1")
+	jwtConfig := NewJWTConfig()
+	if r.auth != nil && r.auth.cfg != nil {
+		jwtConfig = &r.auth.cfg.JWT
+	}
 
 	api.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -44,22 +54,69 @@ func (r *Router) Register(engine *gin.Engine) {
 	}
 
 	jobs := api.Group("/jobs")
+	jobs.Use(JWTAuthMiddleware(jwtConfig))
 	{
 		if r.upload != nil {
 			jobs.POST("", r.upload.HandleCreateUploadJob)
+			jobs.GET("", r.upload.HandleListUploadJobs)
+			jobs.GET("/:id", r.upload.HandleGetUploadJobStatus)
+			jobs.DELETE("/:id", r.upload.HandleDeleteUploadJob)
+			jobs.POST("/:id/complete", r.upload.HandleUploadCompletionWebhook)
 		} else {
 			jobs.POST("", CreateUploadJob)
+			jobs.GET("", ListUploadJobs)
+			jobs.GET("/:id", GetUploadJobStatus)
+			jobs.DELETE("/:id", DeleteUploadJob)
+			jobs.POST("/:id/complete", UploadCompletionWebhook)
 		}
-		jobs.GET("", ListUploadJobs)
-		jobs.GET("/:id", GetUploadJobStatus)
-		jobs.DELETE("/:id", DeleteUploadJob)
-		jobs.POST("/:id/complete", UploadCompletionWebhook)
 	}
 
-	device := api.Group("/device")
+	parks := api.Group("/parks")
+	parks.Use(JWTAuthMiddleware(jwtConfig))
 	{
-		device.GET("/list", handleDeviceList)
-		device.GET("/:id", handleDeviceInfo)
-		device.POST("/register", handleDeviceRegister)
+		if r.park != nil {
+			parks.GET("", r.park.HandleListParks)
+			parks.GET("/:id", r.park.HandleGetPark)
+			parks.POST("", r.park.HandleCreatePark)
+			parks.PUT("/:id", r.park.HandleUpdatePark)
+			parks.DELETE("/:id", r.park.HandleDeletePark)
+		}
+	}
+
+	trees := api.Group("/trees")
+	trees.Use(JWTAuthMiddleware(jwtConfig))
+	{
+		if r.tree != nil {
+			trees.GET("", r.tree.HandleListTrees)
+			trees.GET("/:id", r.tree.HandleGetTree)
+			trees.POST("", r.tree.HandleCreateTree)
+			trees.PUT("/:id", r.tree.HandleUpdateTree)
+			trees.DELETE("/:id", r.tree.HandleDeleteTree)
+		}
+	}
+
+	devices := api.Group("/devices")
+	devices.Use(JWTAuthMiddleware(jwtConfig))
+	{
+		if r.device != nil {
+			devices.GET("", r.device.HandleListDevices)
+			devices.GET("/:id", r.device.HandleGetDevice)
+			devices.POST("", r.device.HandleCreateDevice)
+			devices.PUT("/:id", r.device.HandleUpdateDevice)
+			devices.DELETE("/:id", r.device.HandleDeleteDevice)
+		}
+	}
+
+	deviceCompat := api.Group("/device")
+	{
+		if r.device != nil {
+			deviceCompat.GET("/list", r.device.HandleListDevices)
+			deviceCompat.GET("/:id", r.device.HandleGetDevice)
+			deviceCompat.POST("/register", JWTAuthMiddleware(jwtConfig), r.device.HandleCreateDevice)
+		} else {
+			deviceCompat.GET("/list", handleDeviceList)
+			deviceCompat.GET("/:id", handleDeviceInfo)
+			deviceCompat.POST("/register", handleDeviceRegister)
+		}
 	}
 }

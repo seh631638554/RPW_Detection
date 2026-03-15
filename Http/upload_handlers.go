@@ -1,10 +1,17 @@
 package httpserver
 
 import (
+	dao "RPW_Detection/Dao"
+	models "RPW_Detection/Models"
+	"errors"
 	"net/http"
+	"path"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // ==================== 文件上传处理器 ====================
@@ -16,10 +23,12 @@ var uploadHandler *UploadHandler
 // UploadHandler handles upload APIs.
 type UploadHandler struct {
 	service *UploadService
+	repo    *dao.Repo
+	cfg     *Config
 }
 
-func NewUploadHandler(service *UploadService) *UploadHandler {
-	return &UploadHandler{service: service}
+func NewUploadHandler(service *UploadService, repo *dao.Repo, cfg *Config) *UploadHandler {
+	return &UploadHandler{service: service, repo: repo, cfg: cfg}
 }
 
 // InitStorageService 初始化存储服务
@@ -31,7 +40,7 @@ func InitStorageService() error {
 	if err != nil {
 		return err
 	}
-	uploadHandler = NewUploadHandler(NewUploadService(storageService, config))
+	uploadHandler = NewUploadHandler(NewUploadService(storageService, config), nil, nil)
 
 	return nil
 }
@@ -52,6 +61,22 @@ func ensureUploadInfrastructure() error {
 // POST /api/v1/jobs
 func CreateUploadJob(c *gin.Context) {
 	(&UploadHandler{}).HandleCreateUploadJob(c)
+}
+
+func GetUploadJobStatus(c *gin.Context) {
+	(&UploadHandler{}).HandleGetUploadJobStatus(c)
+}
+
+func ListUploadJobs(c *gin.Context) {
+	(&UploadHandler{}).HandleListUploadJobs(c)
+}
+
+func DeleteUploadJob(c *gin.Context) {
+	(&UploadHandler{}).HandleDeleteUploadJob(c)
+}
+
+func UploadCompletionWebhook(c *gin.Context) {
+	(&UploadHandler{}).HandleUploadCompletionWebhook(c)
 }
 
 func (h *UploadHandler) HandleCreateUploadJob(c *gin.Context) {
@@ -89,105 +114,165 @@ func (h *UploadHandler) HandleCreateUploadJob(c *gin.Context) {
 		return
 	}
 
-	// 保存任务信息到数据库 (TODO: 实现数据库存储)
-	// saveUploadJobToDatabase(response)
+	if err := h.createDetectionRecord(c, req, response); err != nil {
+		errorResponse(c, http.StatusBadRequest, err.Error())
+		return
+	}
 
-	// 返回成功响应
 	successResponse(c, response)
 }
 
-// GetUploadJobStatus 获取上传任务状态
-// GET /api/v1/jobs/:id
-func GetUploadJobStatus(c *gin.Context) {
+func (h *UploadHandler) HandleGetUploadJobStatus(c *gin.Context) {
 	jobID := c.Param("id")
 	if jobID == "" {
 		errorResponse(c, http.StatusBadRequest, "任务ID不能为空")
 		return
 	}
 
-	// TODO: 从数据库查询任务状态
-	// job := getUploadJobFromDatabase(jobID)
-
-	// 模拟任务状态
-	job := &UploadJob{
-		ID:          jobID,
-		DeviceID:    "dev_001",
-		FileName:    "audio_sample.wav",
-		FileSize:    1024000,
-		FileType:    "wav",
-		ContentType: "audio/wav",
-		Status:      JobStatusPending,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+	user, err := getCurrentUser(c, h.repo)
+	if err != nil {
+		errorResponse(c, http.StatusUnauthorized, err.Error())
+		return
 	}
 
-	successResponse(c, job)
+	record, err := h.repo.FindDetectionRecordByJobID(jobID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			errorResponse(c, http.StatusNotFound, "任务不存在")
+			return
+		}
+		errorResponse(c, http.StatusInternalServerError, "查询任务失败")
+		return
+	}
+	if user.IsAdmin != 1 && record.UserID != user.ID {
+		errorResponse(c, http.StatusForbidden, "无权查看该任务")
+		return
+	}
+
+	successResponse(c, buildJobResponse(record))
 }
 
-// ListUploadJobs 列出上传任务
-// GET /api/v1/jobs
-func ListUploadJobs(c *gin.Context) {
-	// 获取查询参数
-	_ = c.Query("device_id")              // TODO: 使用deviceID进行过滤
-	_ = c.Query("status")                 // TODO: 使用status进行过滤
-	_ = c.DefaultQuery("page", "1")       // TODO: 使用page进行分页
-	_ = c.DefaultQuery("page_size", "20") // TODO: 使用pageSize进行分页
-
-	// TODO: 从数据库查询任务列表
-	// jobs := getUploadJobsFromDatabase(deviceID, status, page, pageSize)
-
-	// 模拟任务列表
-	jobs := []UploadJob{
-		{
-			ID:          "job_abc123",
-			DeviceID:    "dev_001",
-			FileName:    "audio_sample.wav",
-			FileSize:    1024000,
-			FileType:    "wav",
-			ContentType: "audio/wav",
-			Status:      JobStatusCompleted,
-			CreatedAt:   time.Now().Add(-1 * time.Hour),
-			UpdatedAt:   time.Now().Add(-30 * time.Minute),
-		},
-		{
-			ID:          "job_def456",
-			DeviceID:    "dev_002",
-			FileName:    "audio_sample.mp3",
-			FileSize:    2048000,
-			FileType:    "mp3",
-			ContentType: "audio/mpeg",
-			Status:      JobStatusPending,
-			CreatedAt:   time.Now().Add(-2 * time.Hour),
-			UpdatedAt:   time.Now().Add(-2 * time.Hour),
-		},
+func (h *UploadHandler) HandleListUploadJobs(c *gin.Context) {
+	user, err := getCurrentUser(c, h.repo)
+	if err != nil {
+		errorResponse(c, http.StatusUnauthorized, err.Error())
+		return
 	}
 
-	// 分页响应
+	page := parsePositiveIntQuery(c, "page", 1)
+	pageSize := parsePositiveIntQuery(c, "page_size", 20)
+	deviceCode := c.Query("device_id")
+	status := c.Query("status")
+	parkID := c.Query("park_id")
+	treeID := c.Query("tree_id")
+
+	baseOpts := []dao.Option{}
+	if user.IsAdmin != 1 {
+		baseOpts = append(baseOpts, dao.WithWhere("user_id = ?", user.ID))
+	}
+	if strings.TrimSpace(status) != "" {
+		baseOpts = append(baseOpts, dao.WithWhere("status = ?", strings.TrimSpace(status)))
+	}
+	if strings.TrimSpace(parkID) != "" {
+		baseOpts = append(baseOpts, dao.WithWhere("park_id = ?", strings.TrimSpace(parkID)))
+	}
+	if strings.TrimSpace(treeID) != "" {
+		baseOpts = append(baseOpts, dao.WithWhere("tree_id = ?", strings.TrimSpace(treeID)))
+	}
+	if strings.TrimSpace(deviceCode) != "" {
+		device, err := h.repo.FindDeviceByCode(strings.TrimSpace(deviceCode))
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				successResponse(c, PaginatedResponse{
+					Total:      0,
+					Page:       page,
+					PageSize:   pageSize,
+					TotalPages: 0,
+					Data:       []gin.H{},
+				})
+				return
+			}
+			errorResponse(c, http.StatusInternalServerError, "查询设备失败")
+			return
+		}
+		baseOpts = append(baseOpts, dao.WithWhere("device_id = ?", device.ID))
+	}
+
+	total, err := h.repo.Count(&models.DetectionRecord{}, baseOpts...)
+	if err != nil {
+		errorResponse(c, http.StatusInternalServerError, "统计任务失败")
+		return
+	}
+
+	listOpts := append([]dao.Option{}, baseOpts...)
+	listOpts = append(listOpts,
+		dao.WithPreload("Park", "Tree", "Device"),
+		dao.WithOrder("id DESC"),
+		dao.WithLimit(pageSize),
+		dao.WithOffset((page-1)*pageSize),
+	)
+	records, err := h.repo.ListDetectionRecords(listOpts...)
+	if err != nil {
+		errorResponse(c, http.StatusInternalServerError, "查询任务列表失败")
+		return
+	}
+
+	items := make([]gin.H, 0, len(records))
+	for _, record := range records {
+		items = append(items, buildJobResponse(&record))
+	}
+
+	totalPages := 0
+	if total > 0 {
+		totalPages = int((total + int64(pageSize) - 1) / int64(pageSize))
+	}
 	response := PaginatedResponse{
-		Total:      len(jobs),
-		Page:       1,
-		PageSize:   20,
-		TotalPages: 1,
-		Data:       jobs,
+		Total:      int(total),
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
+		Data:       items,
 	}
-
 	successResponse(c, response)
 }
 
-// DeleteUploadJob 删除上传任务
-// DELETE /api/v1/jobs/:id
-func DeleteUploadJob(c *gin.Context) {
+func (h *UploadHandler) HandleDeleteUploadJob(c *gin.Context) {
 	jobID := c.Param("id")
 	if jobID == "" {
 		errorResponse(c, http.StatusBadRequest, "任务ID不能为空")
 		return
 	}
 
-	// TODO: 从数据库删除任务
-	// deleteUploadJobFromDatabase(jobID)
+	user, err := getCurrentUser(c, h.repo)
+	if err != nil {
+		errorResponse(c, http.StatusUnauthorized, err.Error())
+		return
+	}
 
-	// TODO: 从存储服务删除文件
-	// storageService.DeleteFile("pest-detection", storageKey)
+	record, err := h.repo.FindDetectionRecordByJobID(jobID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			errorResponse(c, http.StatusNotFound, "任务不存在")
+			return
+		}
+		errorResponse(c, http.StatusInternalServerError, "查询任务失败")
+		return
+	}
+	if user.IsAdmin != 1 && record.UserID != user.ID {
+		errorResponse(c, http.StatusForbidden, "无权删除该任务")
+		return
+	}
+
+	if storageService != nil {
+		_ = storageService.DeleteFile(record.AudioBucket, record.AudioKey)
+		if strings.TrimSpace(record.FeatureBucket) != "" && strings.TrimSpace(record.FeatureKey) != "" {
+			_ = storageService.DeleteFile(record.FeatureBucket, record.FeatureKey)
+		}
+	}
+	if err := h.repo.DeleteByID(&models.DetectionRecord{}, record.ID); err != nil {
+		errorResponse(c, http.StatusInternalServerError, "删除任务失败")
+		return
+	}
 
 	successResponse(c, gin.H{
 		"message": "任务删除成功",
@@ -195,9 +280,7 @@ func DeleteUploadJob(c *gin.Context) {
 	})
 }
 
-// UploadCompletionWebhook 上传完成回调
-// POST /api/v1/jobs/:id/complete
-func UploadCompletionWebhook(c *gin.Context) {
+func (h *UploadHandler) HandleUploadCompletionWebhook(c *gin.Context) {
 	jobID := c.Param("id")
 	if jobID == "" {
 		errorResponse(c, http.StatusBadRequest, "任务ID不能为空")
@@ -217,6 +300,26 @@ func UploadCompletionWebhook(c *gin.Context) {
 		errorResponse(c, http.StatusBadRequest, "bucket和key不能为空")
 		return
 	}
+	user, err := getCurrentUser(c, h.repo)
+	if err != nil {
+		errorResponse(c, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	record, err := h.repo.FindDetectionRecordByJobID(jobID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			errorResponse(c, http.StatusNotFound, "任务不存在")
+			return
+		}
+		errorResponse(c, http.StatusInternalServerError, "查询任务失败")
+		return
+	}
+	if user.IsAdmin != 1 && record.UserID != user.ID {
+		errorResponse(c, http.StatusForbidden, "无权操作该任务")
+		return
+	}
+
 	if err := ensureUploadInfrastructure(); err != nil {
 		errorResponse(c, http.StatusServiceUnavailable, "上传基础设施不可用: "+err.Error())
 		return
@@ -266,8 +369,14 @@ func UploadCompletionWebhook(c *gin.Context) {
 		return
 	}
 
-	// TODO: 更新任务状态为已完成
-	// updateUploadJobStatus(jobID, JobStatusCompleted)
+	if err := h.repo.UpdateDetectionRecordByJobID(jobID, map[string]interface{}{
+		"status":       "processing",
+		"audio_bucket": notification.Bucket,
+		"audio_key":    notification.Key,
+	}); err != nil {
+		errorResponse(c, http.StatusInternalServerError, "更新任务状态失败")
+		return
+	}
 
 	successResponse(c, gin.H{
 		"message":         "上传完成回调处理成功",
@@ -280,4 +389,87 @@ func UploadCompletionWebhook(c *gin.Context) {
 
 // ==================== 辅助函数 ====================
 
-// 注意：errorResponse 和 successResponse 函数已在 handlers.go 中定义
+func (h *UploadHandler) createDetectionRecord(c *gin.Context, req CreateUploadJobRequest, response *CreateUploadJobResponse) error {
+	if h == nil || h.repo == nil {
+		return errors.New("上传服务未初始化")
+	}
+
+	user, err := getCurrentUser(c, h.repo)
+	if err != nil {
+		return err
+	}
+
+	device, err := h.repo.FindDeviceByCode(strings.TrimSpace(req.DeviceID))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("所选设备不存在")
+		}
+		return errors.New("查询设备失败")
+	}
+	if device.TreeID == nil {
+		return errors.New("设备未绑定树木，无法上传音频")
+	}
+
+	record := &models.DetectionRecord{
+		JobID:        response.JobID,
+		UserID:       user.ID,
+		ParkID:       device.ParkID,
+		TreeID:       *device.TreeID,
+		DeviceID:     device.ID,
+		AudioBucket:  response.Bucket,
+		AudioKey:     response.Key,
+		Status:       "pending",
+		ErrorMessage: "",
+	}
+	if err := h.repo.Create(record); err != nil {
+		return errors.New("创建检测记录失败")
+	}
+	return nil
+}
+
+func buildJobResponse(record *models.DetectionRecord) gin.H {
+	if record == nil {
+		return gin.H{}
+	}
+
+	var resultScore interface{}
+	if record.ResultScore != nil {
+		resultScore = *record.ResultScore
+	}
+
+	return gin.H{
+		"id":             record.JobID,
+		"job_id":         record.JobID,
+		"user_id":        record.UserID,
+		"park_id":        record.ParkID,
+		"park_name":      record.Park.Name,
+		"tree_id":        record.TreeID,
+		"tree_code":      record.Tree.TreeCode,
+		"device_id":      record.Device.DeviceCode,
+		"device_code":    record.Device.DeviceCode,
+		"device_name":    record.Device.Name,
+		"file_name":      path.Base(record.AudioKey),
+		"audio_bucket":   record.AudioBucket,
+		"audio_key":      record.AudioKey,
+		"feature_bucket": record.FeatureBucket,
+		"feature_key":    record.FeatureKey,
+		"status":         record.Status,
+		"result_label":   record.ResultLabel,
+		"result_score":   resultScore,
+		"error_message":  record.ErrorMessage,
+		"created_at":     record.CreatedAt,
+		"updated_at":     record.UpdatedAt,
+	}
+}
+
+func parsePositiveIntQuery(c *gin.Context, key string, fallback int) int {
+	raw := strings.TrimSpace(c.DefaultQuery(key, ""))
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
+}

@@ -32,6 +32,7 @@ type PythonFeatureExtractor struct {
 	featureType string
 	sampleRate  int
 	nMels       int
+	fixedSecs   float64
 }
 
 func NewPythonFeatureExtractor(cfg *Config) *PythonFeatureExtractor {
@@ -42,6 +43,7 @@ func NewPythonFeatureExtractor(cfg *Config) *PythonFeatureExtractor {
 		featureType: cfg.FeatureType,
 		sampleRate:  cfg.SampleRate,
 		nMels:       cfg.NMels,
+		fixedSecs:   cfg.FixedSeconds,
 	}
 }
 
@@ -57,6 +59,7 @@ func (e *PythonFeatureExtractor) Extract(ctx context.Context, inputPath string) 
 		"--feature", e.featureType,
 		"--sample-rate", strconv.Itoa(e.sampleRate),
 		"--n-mels", strconv.Itoa(e.nMels),
+		"--fixed-seconds", strconv.FormatFloat(e.fixedSecs, 'f', -1, 64),
 	)
 	cmd.Dir = "."
 	var stdout bytes.Buffer

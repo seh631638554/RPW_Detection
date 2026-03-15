@@ -22,6 +22,7 @@ type Config struct {
 	FeatureType   string
 	SampleRate    int
 	NMels         int
+	FixedSeconds  float64
 }
 
 func LoadConfig() *Config {
@@ -43,8 +44,9 @@ func LoadConfig() *Config {
 		PythonBin:     getEnv("PREPROCESS_PYTHON_BIN", "python3"),
 		ScriptPath:    getEnv("PREPROCESS_SCRIPT_PATH", filepath.Join("preprocess", "feature_extract.py")),
 		FeatureType:   getEnv("PREPROCESS_FEATURE_TYPE", "log_mel_pcen"),
-		SampleRate:    getIntEnv("PREPROCESS_SAMPLE_RATE", 16000),
-		NMels:         getIntEnv("PREPROCESS_N_MELS", 64),
+		SampleRate:    getIntEnv("PREPROCESS_SAMPLE_RATE", 8000),
+		NMels:         getIntEnv("PREPROCESS_N_MELS", 48),
+		FixedSeconds:  getFloatEnv("PREPROCESS_FIXED_SECONDS", 20.0),
 	}
 }
 
@@ -67,6 +69,15 @@ func getDurationEnv(key string, fallback time.Duration) time.Duration {
 func getIntEnv(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
+func getFloatEnv(key string, fallback float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil {
 			return n
 		}
 	}

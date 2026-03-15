@@ -24,8 +24,9 @@ def parse_args():
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--feature", default="log_mel_pcen")
-    parser.add_argument("--sample-rate", type=int, default=16000)
-    parser.add_argument("--n-mels", type=int, default=64)
+    parser.add_argument("--sample-rate", type=int, default=8000)
+    parser.add_argument("--n-mels", type=int, default=48)
+    parser.add_argument("--fixed-seconds", type=float, default=20.0)
     return parser.parse_args()
 
 
@@ -37,12 +38,34 @@ def load_audio(path: str):
     return audio, sample_rate
 
 
-def build_mel_features(audio: np.ndarray, sample_rate: int, target_rate: int, n_mels: int):
+def fix_length_center(audio: np.ndarray, target_len: int):
+    n = len(audio)
+    if n == target_len:
+        return audio
+    if n > target_len:
+        start = (n - target_len) // 2
+        return audio[start:start + target_len]
+
+    out = np.zeros((target_len,), dtype=audio.dtype)
+    out[:n] = audio
+    return out
+
+
+def build_mel_features(
+    audio: np.ndarray,
+    sample_rate: int,
+    target_rate: int,
+    n_mels: int,
+    fixed_seconds: float,
+):
     if sample_rate != target_rate:
         audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=target_rate)
         sample_rate = target_rate
 
     audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
+    if fixed_seconds > 0:
+        target_len = int(round(sample_rate * fixed_seconds))
+        audio = fix_length_center(audio, target_len)
 
     mel = librosa.feature.melspectrogram(
         y=audio,
@@ -91,7 +114,13 @@ def select_feature_tensor(feature_mode: str, log_mel: np.ndarray, pcen: np.ndarr
 def main():
     args = parse_args()
     audio, sample_rate = load_audio(args.input)
-    log_mel, pcen, final_rate = build_mel_features(audio, sample_rate, args.sample_rate, args.n_mels)
+    log_mel, pcen, final_rate = build_mel_features(
+        audio,
+        sample_rate,
+        args.sample_rate,
+        args.n_mels,
+        args.fixed_seconds,
+    )
     feature_tensor, feature_type, inputs = select_feature_tensor(args.feature, log_mel, pcen)
 
     output_path = Path(args.output)
@@ -113,6 +142,7 @@ def main():
                 "dtype": str(sample_tensor.dtype).replace("torch.", ""),
                 "sample_rate": final_rate,
                 "n_mels": args.n_mels,
+                "fixed_seconds": args.fixed_seconds,
             }
         )
     )
